@@ -187,7 +187,7 @@ class Game {
 
     // Look at character's head, adjusted by pitch
     const lookHeight =
-      this.character.mesh.position.y + 1.3 + Math.sin(this.cameraPitch) * 2;
+      this.character.mesh.position.y + 2 + Math.sin(this.cameraPitch) * 2;
 
     const lookTarget = new THREE.Vector3(
       this.character.mesh.position.x,

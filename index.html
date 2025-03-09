@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vene Game - 3D Adventure</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+      }
+      canvas {
+        display: block;
+      }
+      .ui-container {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: Arial, sans-serif;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .controls {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        color: white;
+        font-family: Arial, sans-serif;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 10px;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ui-container">
+      <div id="info">Vene Game - Camera: follow - Speed: normal</div>
+    </div>
+    <div class="controls">
+      <p>Movement: WASD</p>
+      <p>Jump: SPACE</p>
+      <p>Crouch: C</p>
+      <p>Speed Controls:</p>
+      <ul>
+        <li>Normal Speed: Default (7.5 units/s)</li>
+        <li>Fast Speed: Hold SHIFT (15 units/s)</li>
+        <li>Slow Speed: Hold ALT (2.5 units/s)</li>
+      </ul>
+      <p>Camera: Hold LEFT MOUSE BUTTON and move mouse</p>
+      <p>Zoom: Mouse Wheel</p>
+      <p>Toggle Camera Mode: T (follow/orbit)</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

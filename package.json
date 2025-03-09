@@ -1,0 +1,21 @@
+{
+  "name": "venegame",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "A 3D web game with character movement and a large floor.",
+  "dependencies": {
+    "@types/node": "^22.13.10",
+    "@types/three": "^0.174.0",
+    "three": "^0.174.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.1"
+  }
+}

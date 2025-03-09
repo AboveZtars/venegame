@@ -63,7 +63,15 @@ class Game {
     this.camera.position
       .copy(this.character.mesh.position)
       .add(this.cameraOffset);
-    this.camera.lookAt(this.character.mesh.position);
+
+    // Look at the character's upper body, similar to how it's done in handleCameraMovement
+    const lookHeight = this.character.mesh.position.y + 1.7; // Match your character's proportions
+    const lookTarget = new THREE.Vector3(
+      this.character.mesh.position.x,
+      lookHeight,
+      this.character.mesh.position.z
+    );
+    this.camera.lookAt(lookTarget);
 
     // Set up clock for frame rate independence
     this.clock = new THREE.Clock();
@@ -157,8 +165,10 @@ class Game {
     // Position camera behind character with pitch - WoW style
     const cameraTarget = new THREE.Vector3(
       Math.sin(this.cameraRotation) * this.cameraOffset.z,
-      this.cameraOffset.y + Math.sin(this.cameraPitch) * this.cameraOffset.z,
-      Math.cos(this.cameraRotation) * this.cameraOffset.z
+      this.cameraOffset.y +
+        Math.sin(this.cameraPitch) * this.cameraOffset.z -
+        1.5,
+      Math.cos(this.cameraRotation) * this.cameraOffset.z - 1.5
     );
 
     // Smoothly interpolate camera offset
@@ -177,7 +187,7 @@ class Game {
 
     // Look at character's head, adjusted by pitch
     const lookHeight =
-      this.character.mesh.position.y + 0.5 + Math.sin(this.cameraPitch) * 2;
+      this.character.mesh.position.y + 1.3 + Math.sin(this.cameraPitch) * 2;
 
     const lookTarget = new THREE.Vector3(
       this.character.mesh.position.x,

@@ -97,43 +97,36 @@ export class ModelLoader {
     modelId: string,
     onProgress?: (event: ProgressEvent) => void
   ): Promise<{model: THREE.Group; animations: THREE.AnimationClip[]} | null> {
-    console.log(0);
     const asset = this.modelRegistry.get(modelId);
-    console.log(1);
     if (!asset) {
       console.warn(`Model with ID ${modelId} not found in registry`);
       return null;
     }
-    console.log(2);
 
     if (!asset.enabled) {
       console.warn(`Model with ID ${modelId} is disabled`);
       return null;
     }
 
-    console.log(`Loading model: ${modelId}`, {
-      asset,
-      allRegisteredModels: this.getRegisteredModels(),
-      enabledModels: this.getEnabledModels(),
-      alreadyLoadedModels: Array.from(this.loadedModels.keys()),
-    });
+    // console.log(`Loading model: ${modelId}`, {
+    //   asset,
+    //   allRegisteredModels: this.getRegisteredModels(),
+    //   enabledModels: this.getEnabledModels(),
+    //   alreadyLoadedModels: Array.from(this.loadedModels.keys()),
+    // });
 
     // Check if model is already loaded
-    console.log(3);
     const cached = this.loadedModels.get(modelId);
     if (cached) {
       return cached;
     }
-    console.log(4);
     const result = await this.loadModel(
       asset.url,
       onProgress,
       asset.excludeMeshes
     );
-    console.log(5);
 
     this.loadedModels.set(modelId, result);
-    console.log(6);
     return result;
   }
 
@@ -149,10 +142,7 @@ export class ModelLoader {
     onProgress?: (event: ProgressEvent) => void,
     excludeMeshes?: string[]
   ): Promise<{model: THREE.Group; animations: THREE.AnimationClip[]}> {
-    console.log(4.1);
     return new Promise((resolve, reject) => {
-      console.log(4.2);
-
       this.gltfLoader.load(
         url,
         (gltf) => {
@@ -285,8 +275,9 @@ export class ModelLoader {
         url,
         (fbx) => {
           // Extract animation clips from the FBX
+          console.log("fbx animations", fbx.animations);
           let animations = fbx.animations || [];
-
+          console.log("hola2");
           console.log(`Loaded FBX file with ${animations.length} animations`);
 
           // Log the structure of the loaded FBX
@@ -345,7 +336,7 @@ export class ModelLoader {
       mixamorigHips: "Hips",
       mixamorigSpine: "Spine",
       mixamorigSpine1: "Spine1",
-      mixamorigSpine2: "Spine1", // Map to closest match
+      mixamorigSpine2: "Spine2", // Map to closest match
       mixamorigNeck: "Neck",
       mixamorigHead: "Head",
       mixamorigLeftShoulder: "LeftShoulder",
@@ -357,16 +348,16 @@ export class ModelLoader {
       mixamorigLeftHandThumb3: "LeftHandThumb3",
       mixamorigLeftHandIndex1: "LeftHandIndex1",
       mixamorigLeftHandIndex2: "LeftHandIndex2",
-      mixamorigLeftHandIndex3: "LeftHandIndex2", // Map to closest match
+      mixamorigLeftHandIndex3: "LeftHandIndex3", // Map to closest match
       mixamorigLeftHandMiddle1: "LeftHandMiddle1",
       mixamorigLeftHandMiddle2: "LeftHandMiddle2",
-      mixamorigLeftHandMiddle3: "LeftHandMiddle2", // Map to closest match
+      mixamorigLeftHandMiddle3: "LeftHandMiddle3", // Map to closest match
       mixamorigLeftHandRing1: "LeftHandPinky1", // Map to closest match
       mixamorigLeftHandRing2: "LeftHandPinky2", // Map to closest match
-      mixamorigLeftHandRing3: "LeftHandPinky2", // Map to closest match
+      mixamorigLeftHandRing3: "LeftHandPinky3", // Map to closest match
       mixamorigLeftHandPinky1: "LeftHandPinky1",
       mixamorigLeftHandPinky2: "LeftHandPinky2",
-      mixamorigLeftHandPinky3: "LeftHandPinky2", // Map to closest match
+      mixamorigLeftHandPinky3: "LeftHandPinky3", // Map to closest match
       // Fix right side mappings to correctly map to right side bones
       mixamorigRightShoulder: "RightShoulder",
       mixamorigRightArm: "RightArm",
@@ -377,16 +368,16 @@ export class ModelLoader {
       mixamorigRightHandThumb3: "RightHandThumb3",
       mixamorigRightHandIndex1: "RightHandIndex1",
       mixamorigRightHandIndex2: "RightHandIndex2",
-      mixamorigRightHandIndex3: "RightHandIndex2", // Map to closest match
+      mixamorigRightHandIndex3: "RightHandIndex3", // Map to closest match
       mixamorigRightHandMiddle1: "RightHandMiddle1",
       mixamorigRightHandMiddle2: "RightHandMiddle2",
-      mixamorigRightHandMiddle3: "RightHandMiddle2", // Map to closest match
+      mixamorigRightHandMiddle3: "RightHandMiddle3", // Map to closest match
       mixamorigRightHandRing1: "RightHandPinky1", // Map to closest match
       mixamorigRightHandRing2: "RightHandPinky2", // Map to closest match
-      mixamorigRightHandRing3: "RightHandPinky2", // Map to closest match
+      mixamorigRightHandRing3: "RightHandPinky3", // Map to closest match
       mixamorigRightHandPinky1: "RightHandPinky1",
       mixamorigRightHandPinky2: "RightHandPinky2",
-      mixamorigRightHandPinky3: "RightHandPinky2", // Map to closest match
+      mixamorigRightHandPinky3: "RightHandPinky3", // Map to closest match
       mixamorigLeftUpLeg: "LeftUpLeg",
       mixamorigLeftLeg: "LeftLeg",
       mixamorigLeftFoot: "LeftFoot",
@@ -460,15 +451,15 @@ export class ModelLoader {
         // Add the new track to our new clip
         newClip.tracks.push(newTrack);
 
-        console.log(`Remapped track: ${track.name} -> ${newTrackName}`);
+        // console.log(`Remapped track: ${track.name} -> ${newTrackName}`);
       } else {
         // If no mapping exists, keep the original track unless it's a root position track
         if (rootBoneNames.includes(boneName) && property.includes("position")) {
-          console.log(`Skipping unmapped root motion track: ${track.name}`);
+          // console.log(`Skipping unmapped root motion track: ${track.name}`);
           continue;
         }
 
-        console.log(`No mapping for track: ${track.name}, keeping original`);
+        // console.log(`No mapping for track: ${track.name}, keeping original`);
         newClip.tracks.push(track);
       }
     }

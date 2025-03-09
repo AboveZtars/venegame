@@ -59,46 +59,13 @@ export class HumanCharacter {
     // Register the models in the ModelLoader registry
     ModelLoader.registerModel({
       id: "humanCharacter",
-      url: "/models/uploads_files_5857093_Creative_Character_free.glb",
+      url: "/models/elDA.glb",
       enabled: true,
       description: "Main human character model",
     });
 
     // Exclude specific meshes from the human character model
-    ModelLoader.setExcludedMeshes("humanCharacter", [
-      // "Body_010",
-      "Clown_nose_001",
-      "Costume_10_001",
-      "Costume_6_001",
-      "Glasses_004",
-      "Mesh117",
-      "Mesh117_1",
-      "Gloves_006",
-      "Gloves_014",
-      "Hairstyle_male_010",
-      // "Hairstyle_male_012",
-      "Hat_010",
-      "Hat_049",
-      "basemesh001",
-      "basemesh001_1",
-      "Headphones_002",
-      "Male_emotion_angry_003",
-      // "Male_emotion_happy_002",
-      "Male_emotion_usual_001",
-      "Moustache_001",
-      "Moustache_002",
-      "Outerwear_029",
-      "Outerwear_036",
-      "Pacifier_001",
-      // "Pants_010",
-      "Pants_014",
-      "Shoe_Slippers_002",
-      "Shoe_Slippers_005",
-      // "Shoe_Sneakers_009",
-      "Shorts_003",
-      // "Socks_008",
-      // "T_Shirt_009",
-    ]);
+    ModelLoader.setExcludedMeshes("humanCharacter", []);
 
     ModelLoader.registerModel({
       id: "idleAnimation",
@@ -115,12 +82,12 @@ export class HumanCharacter {
     });
 
     // Uncomment these when the animation files are available
-    // ModelLoader.registerModel({
-    //   id: "runAnimation",
-    //   url: "/models/animations/Running.fbx",
-    //   enabled: true,
-    //   description: "Running animation for human character",
-    // });
+    ModelLoader.registerModel({
+      id: "runAnimation",
+      url: "/models/animations/Run.fbx",
+      enabled: true,
+      description: "Running animation for human character",
+    });
 
     // ModelLoader.registerModel({
     //   id: "jumpAnimation",
@@ -192,7 +159,7 @@ export class HumanCharacter {
         {id: "idleAnimation", name: "idle"},
         {id: "walkAnimation", name: "walk"},
         // Uncomment these when the animation files are available
-        // {id: "runAnimation", name: "run"},
+        {id: "runAnimation", name: "run"},
         // {id: "jumpAnimation", name: "jump"},
       ];
 
@@ -236,10 +203,15 @@ export class HumanCharacter {
             // Store the animation in our animations dictionary
             this.animations[anim.name] = action;
 
-            // Configure the animation
-            action.clampWhenFinished = true;
-            action.loop =
-              anim.name === "jump" ? THREE.LoopOnce : THREE.LoopRepeat;
+            // Configure the animation based on its type
+            if (anim.name === "run") {
+              this.configureRunAnimation(action);
+            } else {
+              // Default configuration for other animations
+              action.clampWhenFinished = true;
+              action.loop =
+                anim.name === "jump" ? THREE.LoopOnce : THREE.LoopRepeat;
+            }
 
             console.log(`Successfully loaded ${anim.name} animation`);
           } else {
@@ -262,6 +234,22 @@ export class HumanCharacter {
     } catch (error) {
       console.error("Error loading animations:", error);
     }
+  }
+
+  /**
+   * Configure the run animation with specific settings
+   */
+  configureRunAnimation(action: THREE.AnimationAction) {
+    // Run animation should loop continuously
+    action.loop = THREE.LoopRepeat;
+
+    // Don't clamp when finished since it should loop
+    action.clampWhenFinished = false;
+
+    // Optional: Adjust the time scale to control the speed of the run animation
+    action.timeScale = 1.2; // Make it slightly faster than normal
+
+    console.log("Run animation configured with custom settings");
   }
 
   // Set model scale
@@ -323,8 +311,10 @@ export class HumanCharacter {
         targetAnimation = "walk";
         break;
       case "normal":
+        targetAnimation = "walk";
+        break;
       case "run":
-        targetAnimation = "walk"; // Use walk for now, can add run animation later
+        targetAnimation = "run"; // Now using the actual run animation
         break;
       case "jump":
         targetAnimation = "idle"; // Use idle for now, can add jump animation later

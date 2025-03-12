@@ -22,10 +22,11 @@ export class HumanCharacter {
   cameraRotation: number;
   targetSpeed: number;
   speedChangeRate: number;
-  movementState: "run" | "normal" | "walk" | "idle" | "jump";
+  movementState: "run" | "normal" | "walk" | "idle" | "jump" | "jumpRun";
   modelOffset: THREE.Vector3;
   modelScale: number;
   isModelLoaded: boolean = false;
+  wasRunningBeforeJump: boolean = false;
 
   constructor(scene: THREE.Scene, controls: InputControls) {
     this.controls = controls;
@@ -81,7 +82,6 @@ export class HumanCharacter {
       description: "Walking animation for human character",
     });
 
-    // Uncomment these when the animation files are available
     ModelLoader.registerModel({
       id: "runAnimation",
       url: "/models/animations/Run.fbx",
@@ -89,12 +89,19 @@ export class HumanCharacter {
       description: "Running animation for human character",
     });
 
-    // ModelLoader.registerModel({
-    //   id: "jumpAnimation",
-    //   url: "/models/animations/Jump.fbx",
-    //   enabled: true,
-    //   description: "Jump animation for human character",
-    // });
+    ModelLoader.registerModel({
+      id: "jumpAnimation",
+      url: "/models/animations/Jump.fbx",
+      enabled: true,
+      description: "Jump animation for human character",
+    });
+
+    ModelLoader.registerModel({
+      id: "jumpRunAnimation",
+      url: "/models/animations/JumpWhileRunning.fbx",
+      enabled: true,
+      description: "Jump while running animation for human character",
+    });
 
     // Load the model asynchronously
     this.loadModel(scene).catch((error) => {
@@ -119,11 +126,9 @@ export class HumanCharacter {
 
       this.model = result.model;
 
-      // Apply scale to the model
-      this.model.scale.set(this.modelScale, this.modelScale, this.modelScale);
-
-      // Apply offset to position the model correctly
-      this.model.position.copy(this.modelOffset);
+      // Apply model properties using the new helper methods
+      this.applyModelScale();
+      this.applyModelOffset();
 
       // Make sure the model faces forward (negative Z)
       this.model.rotation.y = Math.PI;
@@ -158,9 +163,9 @@ export class HumanCharacter {
       const animationsToLoad = [
         {id: "idleAnimation", name: "idle"},
         {id: "walkAnimation", name: "walk"},
-        // Uncomment these when the animation files are available
         {id: "runAnimation", name: "run"},
-        // {id: "jumpAnimation", name: "jump"},
+        {id: "jumpAnimation", name: "jump"},
+        {id: "jumpRunAnimation", name: "jumpRun"},
       ];
 
       // Register any animations that aren't already registered
@@ -206,11 +211,12 @@ export class HumanCharacter {
             // Configure the animation based on its type
             if (anim.name === "run") {
               this.configureRunAnimation(action);
+            } else if (anim.name === "jump" || anim.name === "jumpRun") {
+              this.configureJumpAnimation(action);
             } else {
               // Default configuration for other animations
               action.clampWhenFinished = true;
-              action.loop =
-                anim.name === "jump" ? THREE.LoopOnce : THREE.LoopRepeat;
+              action.loop = THREE.LoopRepeat;
             }
 
             console.log(`Successfully loaded ${anim.name} animation`);
@@ -252,35 +258,105 @@ export class HumanCharacter {
     console.log("Run animation configured with custom settings");
   }
 
-  // Set model scale
-  setModelScale(scale: number) {
-    this.modelScale = scale;
+  /**
+   * Configure jump animations with specific settings
+   */
+  configureJumpAnimation(action: THREE.AnimationAction) {
+    // Jump animation should play once and not loop
+    action.loop = THREE.LoopOnce;
+
+    // Clamp when finished to hold the last frame
+    action.clampWhenFinished = true;
+
+    // Prevent animation blending issues
+    action.reset();
+
+    console.log(`Jump animation configured with custom settings`);
+  }
+
+  // HELPER METHODS FOR MODEL PROPERTIES
+
+  /**
+   * Apply model scale to the 3D model
+   */
+  private applyModelScale() {
     if (this.model) {
-      this.model.scale.set(scale, scale, scale);
+      this.model.scale.set(this.modelScale, this.modelScale, this.modelScale);
     }
   }
 
-  // Set model offset
+  /**
+   * Apply model offset to the 3D model
+   */
+  private applyModelOffset() {
+    if (this.model) {
+      this.model.position.copy(this.modelOffset);
+    }
+  }
+
+  /**
+   * Set model scale and apply it
+   */
+  setModelScale(scale: number) {
+    this.modelScale = scale;
+    this.applyModelScale();
+  }
+
+  /**
+   * Set model offset and apply it
+   */
   setModelOffset(offset: THREE.Vector3) {
     this.modelOffset = offset;
-    if (this.model) {
-      this.model.position.copy(offset);
-    }
+    this.applyModelOffset();
+  }
+
+  /**
+   * Helper to check if any movement key is pressed
+   */
+  isAnyMovementKeyPressed(): boolean {
+    return (
+      this.controls.keys.forward ||
+      this.controls.keys.backward ||
+      this.controls.keys.left ||
+      this.controls.keys.right
+    );
+  }
+
+  /**
+   * Helper to determine which jump animation to use
+   */
+  determineJumpAnimationType(): "jump" | "jumpRun" {
+    return this.wasRunningBeforeJump ? "jumpRun" : "jump";
+  }
+
+  /**
+   * Helper to check if movement direction is valid (non-zero)
+   */
+  hasValidMovementDirection(): boolean {
+    return this.movementDirection.lengthSq() > 0;
   }
 
   // Update the movement state based on key presses
   updateMovementState() {
-    const isAnyMovementKeyPressed =
-      this.controls.keys.forward ||
-      this.controls.keys.backward ||
-      this.controls.keys.left ||
-      this.controls.keys.right;
+    const isAnyMovementKeyPressed = this.isAnyMovementKeyPressed();
+
+    // Track if we were running before jumping
+    if (
+      this.movementState === "run" &&
+      this.controls.keys.jump &&
+      this.isOnGround
+    ) {
+      this.wasRunningBeforeJump = true;
+    } else if (this.isOnGround) {
+      this.wasRunningBeforeJump = false;
+    }
 
     if (!isAnyMovementKeyPressed && this.isOnGround) {
       this.movementState = "idle";
       this.targetSpeed = 0;
     } else if (this.controls.keys.jump && !this.isOnGround) {
-      this.movementState = "jump";
+      // Use the helper method to determine jump animation type
+      this.movementState = this.determineJumpAnimationType();
     } else if (this.controls.keys.run && isAnyMovementKeyPressed) {
       this.movementState = "run";
       this.targetSpeed = this.runSpeed;
@@ -314,10 +390,13 @@ export class HumanCharacter {
         targetAnimation = "walk";
         break;
       case "run":
-        targetAnimation = "run"; // Now using the actual run animation
+        targetAnimation = "run";
         break;
       case "jump":
-        targetAnimation = "idle"; // Use idle for now, can add jump animation later
+        targetAnimation = "jump";
+        break;
+      case "jumpRun":
+        targetAnimation = "jumpRun";
         break;
       default:
         targetAnimation = "idle";
@@ -326,17 +405,44 @@ export class HumanCharacter {
     // Play the target animation if it's not already playing
     const currentAction = this.animations[targetAnimation];
     if (currentAction && !currentAction.isRunning()) {
+      // For jump animations, we want to finish other animations quickly
+      const fadeOutTime =
+        targetAnimation === "jump" || targetAnimation === "jumpRun" ? 0.1 : 0.5;
+
       // Fade out all current animations
       Object.values(this.animations).forEach((action) => {
         if (action.isRunning()) {
-          action.fadeOut(0.5);
+          action.fadeOut(fadeOutTime);
         }
       });
 
       // Fade in the new animation
       currentAction.reset();
-      currentAction.fadeIn(0.5);
+      currentAction.fadeIn(fadeOutTime);
       currentAction.play();
+
+      // If it's a jump animation, automatically transition back to appropriate animation when done
+      if (targetAnimation === "jump" || targetAnimation === "jumpRun") {
+        // Store reference to the current action for comparison in the listener
+        const actionToMonitor = currentAction;
+
+        // Use a properly typed event listener function
+        const onAnimationFinished = (e: {
+          action: THREE.AnimationAction;
+          direction: number;
+        }) => {
+          if (e.action === actionToMonitor) {
+            // Once the jump animation finishes, we need to transition to the appropriate animation
+            // Remove this listener to prevent multiple calls
+            this.mixer?.removeEventListener("finished", onAnimationFinished);
+
+            // Determine which animation to go back to based on current keys
+            this.updateMovementState();
+          }
+        };
+
+        this.mixer.addEventListener("finished", onAnimationFinished);
+      }
     }
   }
 
@@ -381,12 +487,12 @@ export class HumanCharacter {
     // If we're moving, transform movement direction based on camera rotation
     if (this.isMoving) {
       // Normalize the movement direction if it's not zero
-      if (this.movementDirection.lengthSq() > 0) {
+      if (this.hasValidMovementDirection()) {
         this.movementDirection.normalize();
       }
 
       // Transform movement by camera - this handles rotation and direction transformation
-      this.transformMovementByCamera();
+      this.updateCharacterRotation(true);
 
       // Apply current speed to velocity
       this.velocity.x = this.movementDirection.x * this.currentSpeed;
@@ -394,8 +500,8 @@ export class HumanCharacter {
     }
     // If we just stopped moving, we still want to face forward
     else if (wasMoving) {
-      // Always face the same direction as the camera
-      this.mesh.rotation.y = this.cameraRotation;
+      // Update rotation when not moving
+      this.updateCharacterRotation(false);
     }
 
     // Apply movement to position
@@ -403,18 +509,48 @@ export class HumanCharacter {
     this.mesh.position.z += this.velocity.z * deltaTime;
   }
 
-  // Transform movement direction based on camera rotation
-  transformMovementByCamera() {
-    // Create a rotation matrix based on the camera's horizontal rotation
-    const rotationMatrix = new THREE.Matrix4().makeRotationY(
-      this.cameraRotation
-    );
+  /**
+   * Consolidated character rotation logic
+   * @param isMoving Whether the character is currently moving
+   */
+  updateCharacterRotation(isMoving: boolean) {
+    if (isMoving) {
+      // Create a rotation matrix based on the camera's horizontal rotation
+      const rotationMatrix = new THREE.Matrix4().makeRotationY(
+        this.cameraRotation
+      );
 
-    // Apply the rotation to the movement direction
-    this.movementDirection.applyMatrix4(rotationMatrix);
+      // Apply the rotation to the movement direction
+      this.movementDirection.applyMatrix4(rotationMatrix);
 
-    // Always face the same direction as the camera
-    this.mesh.rotation.y = this.cameraRotation;
+      // Only rotate when moving and has valid direction
+      if (this.hasValidMovementDirection()) {
+        // Calculate the target rotation based on movement direction
+        const targetRotation = Math.atan2(
+          -this.movementDirection.x,
+          -this.movementDirection.z
+        );
+
+        // Smoothly rotate to face movement direction (WoW-like)
+        const rotationSpeed = this.rotationSpeed * 0.05;
+        this.mesh.rotation.y = THREE.MathUtils.lerp(
+          this.mesh.rotation.y,
+          targetRotation,
+          rotationSpeed
+        );
+      }
+    } else {
+      // When not moving, face the camera direction
+      // Smooth rotation to camera direction (slower than movement-based rotation)
+      const rotationSpeed = this.rotationSpeed * 0.02;
+      // The character should face the same direction as the camera
+      const targetRotation = this.cameraRotation;
+      this.mesh.rotation.y = THREE.MathUtils.lerp(
+        this.mesh.rotation.y,
+        targetRotation,
+        rotationSpeed
+      );
+    }
   }
 
   // Set character rotation based on camera horizontal rotation
@@ -422,8 +558,11 @@ export class HumanCharacter {
     // Store the camera rotation for movement calculations
     this.cameraRotation = cameraHorizontalRotation;
 
-    // Always keep the character facing the same direction as the camera
-    this.mesh.rotation.y = this.cameraRotation;
+    // Update character rotation if not moving
+    if (!this.isMoving) {
+      this.updateCharacterRotation(false);
+    }
+    // Note: When moving, character faces movement direction (handled in updateCharacterRotation)
   }
 
   // Check collisions with the floor
@@ -463,6 +602,13 @@ export class HumanCharacter {
     if (this.controls.keys.jump && this.isOnGround) {
       this.velocity.y = this.jumpForce;
       this.isOnGround = false;
+
+      // Set the appropriate jump animation based on current movement
+      // Using the helper method for consistency
+      this.movementState = this.determineJumpAnimationType();
+
+      // Update animation immediately
+      this.updateAnimation();
     }
 
     // Apply vertical velocity
@@ -482,16 +628,11 @@ export class HumanCharacter {
     // First update movement state based on keys
     this.updateMovementState();
 
-    // Check for collisions with the floor first
-    this.checkCollisions(floor);
-
-    // Handle movement - this includes rotation based on movement direction
+    // Handle all physics in sequence, with a single collision check at the end
     this.handleMovement(cappedDeltaTime);
-
-    // Handle jumping
     this.handleJump(cappedDeltaTime);
 
-    // Check for collisions again after movement
+    // Perform a single collision check after all movement is applied
     this.checkCollisions(floor);
   }
 }

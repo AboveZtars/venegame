@@ -19,7 +19,7 @@ class Game {
   targetCameraPitch: number = 0;
   minZoomDistance: number = 2;
   maxZoomDistance: number = 15;
-  cameraLerpFactor: number = 0.1;
+  cameraLerpFactor: number = 0.3;
 
   constructor() {
     // Initialize Three.js
@@ -58,20 +58,11 @@ class Game {
     this.character.isOnGround = true;
 
     // Set up camera
-    this.cameraOffset = new THREE.Vector3(0, 3, 5);
+    this.cameraOffset = new THREE.Vector3(0, 3, 8); // Increased initial distance
     this.targetCameraOffset = this.cameraOffset.clone();
-    this.camera.position
-      .copy(this.character.mesh.position)
-      .add(this.cameraOffset);
 
-    // Look at the character's upper body, similar to how it's done in handleCameraMovement
-    const lookHeight = this.character.mesh.position.y + 1.7; // Match your character's proportions
-    const lookTarget = new THREE.Vector3(
-      this.character.mesh.position.x,
-      lookHeight,
-      this.character.mesh.position.z
-    );
-    this.camera.lookAt(lookTarget);
+    // Set initial camera position and look target
+    this.updateCameraPositionAndTarget(0);
 
     // Set up clock for frame rate independence
     this.clock = new THREE.Clock();
@@ -112,6 +103,56 @@ class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  // Calculate lerp factor based on condition
+  getLerpFactor(isActive: boolean, activeFactor: number): number {
+    return isActive ? activeFactor : this.cameraLerpFactor;
+  }
+
+  // Calculate the camera's look target position
+  calculateCameraLookTarget(heightOffset: number = 0): THREE.Vector3 {
+    const lookHeight =
+      this.character.mesh.position.y +
+      1.7 +
+      heightOffset +
+      Math.sin(this.cameraPitch) * 0.5;
+
+    return new THREE.Vector3(
+      this.character.mesh.position.x,
+      lookHeight,
+      this.character.mesh.position.z
+    );
+  }
+
+  // Calculate desired camera position based on offsets and rotation
+  calculateCameraPosition(heightOffset: number = 0): THREE.Vector3 {
+    // Calculate horizontal position using sin/cos
+    const horizontalDistance = Math.cos(this.cameraPitch) * this.cameraOffset.z;
+    const cameraTarget = new THREE.Vector3(
+      Math.sin(this.cameraRotation) * horizontalDistance,
+      this.cameraOffset.y + Math.sin(this.cameraPitch) * this.cameraOffset.z,
+      Math.cos(this.cameraRotation) * horizontalDistance
+    );
+
+    // Add character position with any height offset
+    return new THREE.Vector3()
+      .copy(this.character.mesh.position)
+      .add(new THREE.Vector3(0, heightOffset, 0))
+      .add(cameraTarget);
+  }
+
+  // Update both camera position and target in one method
+  updateCameraPositionAndTarget(heightOffset: number = 0) {
+    const positionLerpFactor = this.getLerpFactor(this.character.isMoving, 0.3);
+    const desiredPosition = this.calculateCameraPosition(heightOffset);
+
+    // Update camera position with appropriate lerp factor
+    this.camera.position.lerp(desiredPosition, positionLerpFactor);
+
+    // Update camera look target
+    const lookTarget = this.calculateCameraLookTarget(heightOffset);
+    this.camera.lookAt(lookTarget);
+  }
+
   handleCameraMovement() {
     // Read mouse movement from controls
     const mouseMovementX = this.controls.mouse.movementX;
@@ -121,55 +162,63 @@ class Game {
     // Only update camera rotation when right mouse button is down
     if (this.controls.mouse.rightButtonDown) {
       // Camera horizontal rotation - WoW style (slower horizontal rotation)
-      this.targetCameraRotation -= mouseMovementX * 0.002;
+      this.targetCameraRotation -= mouseMovementX * 0.003; // Increased sensitivity from 0.001 to 0.003
 
       // Camera vertical rotation (pitch) - WoW style (slower vertical rotation)
-      this.targetCameraPitch += mouseMovementY * 0.002;
+      this.targetCameraPitch += mouseMovementY * 0.003; // Increased sensitivity from 0.001 to 0.003
 
-      // Clamp vertical rotation to prevent flipping
+      // Clamp vertical rotation to prevent flipping - wider range like WoW
       this.targetCameraPitch = Math.max(
-        -Math.PI / 3,
-        Math.min(Math.PI / 6, this.targetCameraPitch)
+        -Math.PI / 2.5, // Allow looking down more
+        Math.min(Math.PI / 4, this.targetCameraPitch) // Allow looking up more
       );
     }
 
-    // Handle zoom with mouse wheel
+    // Handle zoom with mouse wheel - more WoW-like behavior
     if (wheelDelta !== 0) {
-      // Adjust zoom distance
+      // Adjust zoom distance with non-linear scaling (closer = smaller steps, further = larger steps)
       const currentDistance = this.targetCameraOffset.z;
+      const zoomFactor = currentDistance / 5; // Scale factor based on current distance
       const newDistance = THREE.MathUtils.clamp(
-        currentDistance + wheelDelta * 1.0,
+        currentDistance + wheelDelta * zoomFactor,
         this.minZoomDistance,
         this.maxZoomDistance
       );
 
       this.targetCameraOffset.z = newDistance;
+
+      // WoW-like behavior: When zooming in fully, slightly increase height
+      if (newDistance < 4) {
+        this.targetCameraOffset.y = THREE.MathUtils.lerp(
+          3,
+          3.5,
+          (4 - newDistance) / 2
+        );
+      } else {
+        this.targetCameraOffset.y = 3;
+      }
     }
 
     // Smoothly interpolate camera rotation and pitch
+    const rotationLerpFactor = this.getLerpFactor(
+      this.controls.mouse.rightButtonDown,
+      0.5
+    );
+
     this.cameraRotation = THREE.MathUtils.lerp(
       this.cameraRotation,
       this.targetCameraRotation,
-      this.cameraLerpFactor
+      rotationLerpFactor
     );
 
     this.cameraPitch = THREE.MathUtils.lerp(
       this.cameraPitch,
       this.targetCameraPitch,
-      this.cameraLerpFactor
+      rotationLerpFactor
     );
 
     // Update character's movement direction based on camera
     this.character.setRotationFromCamera(this.cameraRotation);
-
-    // Position camera behind character with pitch - WoW style
-    const cameraTarget = new THREE.Vector3(
-      Math.sin(this.cameraRotation) * this.cameraOffset.z,
-      this.cameraOffset.y +
-        Math.sin(this.cameraPitch) * this.cameraOffset.z -
-        1.5,
-      Math.cos(this.cameraRotation) * this.cameraOffset.z - 1.5
-    );
 
     // Smoothly interpolate camera offset
     this.cameraOffset = this.cameraOffset.lerp(
@@ -177,26 +226,14 @@ class Game {
       this.cameraLerpFactor
     );
 
-    // Calculate desired camera position
-    const desiredPosition = new THREE.Vector3()
-      .copy(this.character.mesh.position)
-      .add(cameraTarget);
+    // Calculate height offset for walking animation
+    let heightOffset = 0;
+    if (this.character.isMoving) {
+      heightOffset = Math.sin(Date.now() * 0.008) * 0.05;
+    }
 
-    // Smoothly move camera to follow character
-    this.camera.position.lerp(desiredPosition, this.cameraLerpFactor);
-
-    // Look at character's head, adjusted by pitch
-    const lookHeight =
-      this.character.mesh.position.y + 2 + Math.sin(this.cameraPitch) * 2;
-
-    const lookTarget = new THREE.Vector3(
-      this.character.mesh.position.x,
-      lookHeight,
-      this.character.mesh.position.z
-    );
-
-    // Have the camera directly look at the target - WoW style
-    this.camera.lookAt(lookTarget);
+    // Update camera position and look target
+    this.updateCameraPositionAndTarget(heightOffset);
 
     // Reset mouse movement at the end of the frame
     this.controls.resetMouseMovement();

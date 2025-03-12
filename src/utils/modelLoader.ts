@@ -10,17 +10,25 @@ interface ModelAsset {
   excludeMeshes?: string[]; // Names of meshes to exclude when loading
 }
 
+interface LoadedModel {
+  model: THREE.Group;
+  animations: THREE.AnimationClip[];
+}
+
 export class ModelLoader {
   private static gltfLoader = new GLTFLoader();
   private static fbxLoader = new FBXLoader();
   private static modelRegistry: Map<string, ModelAsset> = new Map();
-  private static loadedModels: Map<
-    string,
-    {
-      model: THREE.Group;
-      animations: THREE.AnimationClip[];
-    }
-  > = new Map();
+  private static loadedModels: Map<string, LoadedModel> = new Map();
+
+  // Root bone names that we should remove position tracks from to prevent root motion
+  private static rootBoneNames = [
+    "mixamorigHips",
+    "Hips",
+    "Root",
+    "Character",
+    "Armature",
+  ];
 
   /**
    * Register a new model asset
@@ -96,7 +104,7 @@ export class ModelLoader {
   static async loadModelById(
     modelId: string,
     onProgress?: (event: ProgressEvent) => void
-  ): Promise<{model: THREE.Group; animations: THREE.AnimationClip[]} | null> {
+  ): Promise<LoadedModel | null> {
     const asset = this.modelRegistry.get(modelId);
     if (!asset) {
       console.warn(`Model with ID ${modelId} not found in registry`);
@@ -107,13 +115,6 @@ export class ModelLoader {
       console.warn(`Model with ID ${modelId} is disabled`);
       return null;
     }
-
-    // console.log(`Loading model: ${modelId}`, {
-    //   asset,
-    //   allRegisteredModels: this.getRegisteredModels(),
-    //   enabledModels: this.getEnabledModels(),
-    //   alreadyLoadedModels: Array.from(this.loadedModels.keys()),
-    // });
 
     // Check if model is already loaded
     const cached = this.loadedModels.get(modelId);
@@ -141,109 +142,21 @@ export class ModelLoader {
     url: string,
     onProgress?: (event: ProgressEvent) => void,
     excludeMeshes?: string[]
-  ): Promise<{model: THREE.Group; animations: THREE.AnimationClip[]}> {
+  ): Promise<LoadedModel> {
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
         url,
         (gltf) => {
           const model = gltf.scene;
 
-          // Enable shadows for all meshes in the model and handle excluded meshes
-          model.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              // Check if this mesh should be excluded
-              if (
-                excludeMeshes &&
-                excludeMeshes.some(
-                  (name) =>
-                    child.name.includes(name) ||
-                    child.name.toLowerCase() === name.toLowerCase()
-                )
-              ) {
-                // Make the mesh invisible
-                child.visible = false;
-              } else {
-                // Enable shadows for included meshes
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            }
-          });
+          // Process model meshes (apply shadows and handle exclusions)
+          this.processMeshes(model, excludeMeshes);
 
           // Extract animation clips from the GLTF
           const animations = gltf.animations || [];
 
-          // Log all assets in the GLB model
-          console.log("GLB Model Structure:", url);
-          const meshes: string[] = [];
-          const disabledMeshes: string[] = [];
-          const materials: string[] = [];
-          const textures: Set<string> = new Set();
-          const bones: string[] = [];
-
-          model.traverse((object) => {
-            if (object instanceof THREE.Mesh) {
-              if (object.visible) {
-                meshes.push(`${object.name} (${object.type})`);
-              } else {
-                disabledMeshes.push(`${object.name} (${object.type})`);
-              }
-
-              // Log materials
-              if (object.material) {
-                const mats = Array.isArray(object.material)
-                  ? object.material
-                  : [object.material];
-                mats.forEach((mat) => {
-                  materials.push(`${mat.name || "unnamed"} (${mat.type})`);
-
-                  // Check for textures in material properties
-                  Object.entries(mat).forEach(([key, value]) => {
-                    if (value instanceof THREE.Texture && value.image) {
-                      textures.add(
-                        `${key}: ${
-                          value.image.src
-                            ? value.image.src.split("/").pop()
-                            : "embedded"
-                        }`
-                      );
-                    }
-                  });
-                });
-              }
-            }
-
-            if (
-              object.type === "Bone" ||
-              object.name.includes("Bone") ||
-              object.name.includes("bone")
-            ) {
-              bones.push(object.name);
-            }
-          });
-
-          console.log({
-            meshCount: meshes.length,
-            meshes,
-            disabledMeshCount: disabledMeshes.length,
-            disabledMeshes,
-            materialCount: materials.length,
-            materials,
-            textureCount: textures.size,
-            textures: Array.from(textures),
-            boneCount: bones.length,
-            bones:
-              bones.length > 20
-                ? [...bones.slice(0, 20), `... and ${bones.length - 20} more`]
-                : bones,
-            animationCount: animations.length,
-            animations: animations.map((a) => a.name),
-          });
-
-          console.log(
-            "Loaded animations:",
-            animations.map((a) => a.name)
-          );
+          // Log model structure
+          this.logModelStructure(model, url, animations);
 
           resolve({model, animations});
         },
@@ -254,6 +167,120 @@ export class ModelLoader {
         }
       );
     });
+  }
+
+  /**
+   * Processes meshes in a model (apply shadows and handle mesh exclusions)
+   * @param model The model to process
+   * @param excludeMeshes Optional array of mesh names to exclude
+   */
+  private static processMeshes(
+    model: THREE.Group,
+    excludeMeshes?: string[]
+  ): void {
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        // Check if this mesh should be excluded
+        if (
+          excludeMeshes &&
+          excludeMeshes.some(
+            (name) =>
+              child.name.includes(name) ||
+              child.name.toLowerCase() === name.toLowerCase()
+          )
+        ) {
+          // Make the mesh invisible
+          child.visible = false;
+        } else {
+          // Enable shadows for included meshes
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      }
+    });
+  }
+
+  /**
+   * Log the structure and contents of a loaded model
+   * @param model The model to analyze
+   * @param url The URL the model was loaded from
+   * @param animations The animations from the model
+   */
+  private static logModelStructure(
+    model: THREE.Group,
+    url: string,
+    animations: THREE.AnimationClip[]
+  ): void {
+    console.log("GLB Model Structure:", url);
+    const meshes: string[] = [];
+    const disabledMeshes: string[] = [];
+    const materials: string[] = [];
+    const textures: Set<string> = new Set();
+    const bones: string[] = [];
+
+    model.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        if (object.visible) {
+          meshes.push(`${object.name} (${object.type})`);
+        } else {
+          disabledMeshes.push(`${object.name} (${object.type})`);
+        }
+
+        // Log materials
+        if (object.material) {
+          const mats = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+          mats.forEach((mat) => {
+            materials.push(`${mat.name || "unnamed"} (${mat.type})`);
+
+            // Check for textures in material properties
+            Object.entries(mat).forEach(([key, value]) => {
+              if (value instanceof THREE.Texture && value.image) {
+                textures.add(
+                  `${key}: ${
+                    value.image.src
+                      ? value.image.src.split("/").pop()
+                      : "embedded"
+                  }`
+                );
+              }
+            });
+          });
+        }
+      }
+
+      if (
+        object.type === "Bone" ||
+        object.name.includes("Bone") ||
+        object.name.includes("bone")
+      ) {
+        bones.push(object.name);
+      }
+    });
+
+    console.log({
+      meshCount: meshes.length,
+      meshes,
+      disabledMeshCount: disabledMeshes.length,
+      disabledMeshes,
+      materialCount: materials.length,
+      materials,
+      textureCount: textures.size,
+      textures: Array.from(textures),
+      boneCount: bones.length,
+      bones:
+        bones.length > 20
+          ? [...bones.slice(0, 20), `... and ${bones.length - 20} more`]
+          : bones,
+      animationCount: animations.length,
+      animations: animations.map((a) => a.name),
+    });
+
+    console.log(
+      "Loaded animations:",
+      animations.map((a) => a.name)
+    );
   }
 
   /**
@@ -321,6 +348,132 @@ export class ModelLoader {
   }
 
   /**
+   * Generate bone mapping between mixamorig bones and standard bone names
+   * @returns Object with bone name mappings
+   */
+  private static generateBoneMapping(): {[key: string]: string} {
+    const mapping: {[key: string]: string} = {};
+
+    // Define bone names to map (without the side prefix)
+    const boneNames = [
+      "Hips",
+      "Spine",
+      "Spine1",
+      "Spine2",
+      "Neck",
+      "Head",
+      "Shoulder",
+      "Arm",
+      "ForeArm",
+      "Hand",
+      "HandThumb1",
+      "HandThumb2",
+      "HandThumb3",
+      "HandIndex1",
+      "HandIndex2",
+      "HandIndex3",
+      "HandMiddle1",
+      "HandMiddle2",
+      "HandMiddle3",
+      "HandRing1",
+      "HandRing2",
+      "HandRing3",
+      "HandPinky1",
+      "HandPinky2",
+      "HandPinky3",
+      "UpLeg",
+      "Leg",
+      "Foot",
+      "ToeBase",
+    ];
+
+    // Define sides
+    const sides = ["Left", "Right"];
+
+    // Add mapping for central bones (no side prefix)
+    ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head"].forEach((bone) => {
+      mapping[`mixamorig${bone}`] = bone;
+    });
+
+    // Add mapping for sided bones
+    sides.forEach((side) => {
+      boneNames.forEach((bone) => {
+        // Skip central bones that don't have sides
+        if (
+          ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head"].includes(bone)
+        ) {
+          return;
+        }
+
+        mapping[`mixamorig${side}${bone}`] = `${side}${bone}`;
+      });
+    });
+
+    // Add special mappings for ring fingers to pinky (since some models use different names)
+    sides.forEach((side) => {
+      ["Ring1", "Ring2", "Ring3"].forEach((ringPart, i) => {
+        mapping[`mixamorig${side}Hand${ringPart}`] = `${side}HandPinky${i + 1}`;
+      });
+    });
+
+    return mapping;
+  }
+
+  /**
+   * Create a new keyframe track of the appropriate type
+   * @param trackName The name for the new track
+   * @param originalTrack The original track to copy data from
+   * @returns A new keyframe track
+   */
+  private static createNewTrack(
+    trackName: string,
+    originalTrack: THREE.KeyframeTrack
+  ): THREE.KeyframeTrack {
+    if (originalTrack instanceof THREE.QuaternionKeyframeTrack) {
+      return new THREE.QuaternionKeyframeTrack(
+        trackName,
+        originalTrack.times,
+        originalTrack.values.slice()
+      );
+    } else if (originalTrack instanceof THREE.VectorKeyframeTrack) {
+      return new THREE.VectorKeyframeTrack(
+        trackName,
+        originalTrack.times,
+        originalTrack.values.slice()
+      );
+    } else if (originalTrack instanceof THREE.NumberKeyframeTrack) {
+      return new THREE.NumberKeyframeTrack(
+        trackName,
+        originalTrack.times,
+        originalTrack.values.slice()
+      );
+    } else {
+      // For any other track type, try to create a generic KeyframeTrack
+      return new THREE.KeyframeTrack(
+        trackName,
+        originalTrack.times,
+        originalTrack.values.slice(),
+        originalTrack.getInterpolation()
+      );
+    }
+  }
+
+  /**
+   * Check if a track is a root position track that should be skipped
+   * @param boneName The name of the bone
+   * @param property The property of the track
+   * @returns Whether the track should be skipped
+   */
+  private static isRootPositionTrack(
+    boneName: string,
+    property: string
+  ): boolean {
+    return (
+      this.rootBoneNames.includes(boneName) && property.includes("position")
+    );
+  }
+
+  /**
    * Remaps animation track names to match the model's bone structure
    * @param clip The animation clip to remap
    * @returns The remapped animation clip
@@ -331,72 +484,8 @@ export class ModelLoader {
     // Create a new clip with the same name and duration
     const newClip = new THREE.AnimationClip(clip.name, clip.duration, []);
 
-    // Define the bone name mapping from animation bones to model bones
-    const boneMapping: {[key: string]: string} = {
-      mixamorigHips: "Hips",
-      mixamorigSpine: "Spine",
-      mixamorigSpine1: "Spine1",
-      mixamorigSpine2: "Spine2", // Map to closest match
-      mixamorigNeck: "Neck",
-      mixamorigHead: "Head",
-      mixamorigLeftShoulder: "LeftShoulder",
-      mixamorigLeftArm: "LeftArm",
-      mixamorigLeftForeArm: "LeftForeArm",
-      mixamorigLeftHand: "LeftHand",
-      mixamorigLeftHandThumb1: "LeftHandThumb1",
-      mixamorigLeftHandThumb2: "LeftHandThumb2",
-      mixamorigLeftHandThumb3: "LeftHandThumb3",
-      mixamorigLeftHandIndex1: "LeftHandIndex1",
-      mixamorigLeftHandIndex2: "LeftHandIndex2",
-      mixamorigLeftHandIndex3: "LeftHandIndex3", // Map to closest match
-      mixamorigLeftHandMiddle1: "LeftHandMiddle1",
-      mixamorigLeftHandMiddle2: "LeftHandMiddle2",
-      mixamorigLeftHandMiddle3: "LeftHandMiddle3", // Map to closest match
-      mixamorigLeftHandRing1: "LeftHandPinky1", // Map to closest match
-      mixamorigLeftHandRing2: "LeftHandPinky2", // Map to closest match
-      mixamorigLeftHandRing3: "LeftHandPinky3", // Map to closest match
-      mixamorigLeftHandPinky1: "LeftHandPinky1",
-      mixamorigLeftHandPinky2: "LeftHandPinky2",
-      mixamorigLeftHandPinky3: "LeftHandPinky3", // Map to closest match
-      // Fix right side mappings to correctly map to right side bones
-      mixamorigRightShoulder: "RightShoulder",
-      mixamorigRightArm: "RightArm",
-      mixamorigRightForeArm: "RightForeArm",
-      mixamorigRightHand: "RightHand",
-      mixamorigRightHandThumb1: "RightHandThumb1",
-      mixamorigRightHandThumb2: "RightHandThumb2",
-      mixamorigRightHandThumb3: "RightHandThumb3",
-      mixamorigRightHandIndex1: "RightHandIndex1",
-      mixamorigRightHandIndex2: "RightHandIndex2",
-      mixamorigRightHandIndex3: "RightHandIndex3", // Map to closest match
-      mixamorigRightHandMiddle1: "RightHandMiddle1",
-      mixamorigRightHandMiddle2: "RightHandMiddle2",
-      mixamorigRightHandMiddle3: "RightHandMiddle3", // Map to closest match
-      mixamorigRightHandRing1: "RightHandPinky1", // Map to closest match
-      mixamorigRightHandRing2: "RightHandPinky2", // Map to closest match
-      mixamorigRightHandRing3: "RightHandPinky3", // Map to closest match
-      mixamorigRightHandPinky1: "RightHandPinky1",
-      mixamorigRightHandPinky2: "RightHandPinky2",
-      mixamorigRightHandPinky3: "RightHandPinky3", // Map to closest match
-      mixamorigLeftUpLeg: "LeftUpLeg",
-      mixamorigLeftLeg: "LeftLeg",
-      mixamorigLeftFoot: "LeftFoot",
-      mixamorigLeftToeBase: "LeftToeBase",
-      // Fix right leg mappings to correctly map to right side bones
-      mixamorigRightUpLeg: "RightUpLeg",
-      mixamorigRightLeg: "RightLeg",
-      mixamorigRightFoot: "RightFoot",
-      mixamorigRightToeBase: "RightToeBase",
-    };
-
-    // Root bone names that we should remove position tracks from to prevent root motion
-    const rootBoneNames = [
-      "mixamorigHips",
-      "Hips",
-      "Root",
-      "Character",
-      "Armature",
-    ];
+    // Get the bone mapping
+    const boneMapping = this.generateBoneMapping();
 
     // Process each track in the original clip
     for (const track of clip.tracks) {
@@ -404,7 +493,7 @@ export class ModelLoader {
       const [boneName, property] = track.name.split(".");
 
       // Skip position tracks for root bones to prevent character flying away
-      if (rootBoneNames.includes(boneName) && property.includes("position")) {
+      if (this.isRootPositionTrack(boneName, property)) {
         console.log(
           `Skipping root motion track: ${track.name} to prevent flying`
         );
@@ -416,50 +505,17 @@ export class ModelLoader {
         // Create a new track with the mapped bone name
         const newTrackName = `${boneMapping[boneName]}.${property}`;
 
-        // Clone the track and update its name
-        let newTrack;
-
-        // Create the appropriate track type
-        if (track instanceof THREE.QuaternionKeyframeTrack) {
-          newTrack = new THREE.QuaternionKeyframeTrack(
-            newTrackName,
-            track.times,
-            track.values.slice()
-          );
-        } else if (track instanceof THREE.VectorKeyframeTrack) {
-          newTrack = new THREE.VectorKeyframeTrack(
-            newTrackName,
-            track.times,
-            track.values.slice()
-          );
-        } else if (track instanceof THREE.NumberKeyframeTrack) {
-          newTrack = new THREE.NumberKeyframeTrack(
-            newTrackName,
-            track.times,
-            track.values.slice()
-          );
-        } else {
-          // For any other track type, try to create a generic KeyframeTrack
-          newTrack = new THREE.KeyframeTrack(
-            newTrackName,
-            track.times,
-            track.values.slice(),
-            track.getInterpolation()
-          );
-        }
+        // Create new track with appropriate type
+        const newTrack = this.createNewTrack(newTrackName, track);
 
         // Add the new track to our new clip
         newClip.tracks.push(newTrack);
-
-        // console.log(`Remapped track: ${track.name} -> ${newTrackName}`);
       } else {
         // If no mapping exists, keep the original track unless it's a root position track
-        if (rootBoneNames.includes(boneName) && property.includes("position")) {
-          // console.log(`Skipping unmapped root motion track: ${track.name}`);
+        if (this.isRootPositionTrack(boneName, property)) {
           continue;
         }
 
-        // console.log(`No mapping for track: ${track.name}, keeping original`);
         newClip.tracks.push(track);
       }
     }
@@ -468,32 +524,32 @@ export class ModelLoader {
     return newClip;
   }
 
-  // Helper method to get target bone names from animation tracks
-  private static getTargetBones(animation: THREE.AnimationClip): string[] {
-    const boneNames = new Set<string>();
+  // // Helper method to get target bone names from animation tracks
+  // private static getTargetBones(animation: THREE.AnimationClip): string[] {
+  //   const boneNames = new Set<string>();
 
-    for (const track of animation.tracks) {
-      // Extract the bone name from the track name (format is usually "boneName.property")
-      const boneName = track.name.split(".")[0];
-      boneNames.add(boneName);
-    }
+  //   for (const track of animation.tracks) {
+  //     // Extract the bone name from the track name (format is usually "boneName.property")
+  //     const boneName = track.name.split(".")[0];
+  //     boneNames.add(boneName);
+  //   }
 
-    return Array.from(boneNames);
-  }
+  //   return Array.from(boneNames);
+  // }
 
-  // Helper method to get track types
-  private static getTrackTypes(
-    animation: THREE.AnimationClip
-  ): Record<string, number> {
-    const types: Record<string, number> = {};
+  // // Helper method to get track types
+  // private static getTrackTypes(
+  //   animation: THREE.AnimationClip
+  // ): Record<string, number> {
+  //   const types: Record<string, number> = {};
 
-    for (const track of animation.tracks) {
-      const type = track.ValueTypeName;
-      types[type] = (types[type] || 0) + 1;
-    }
+  //   for (const track of animation.tracks) {
+  //     const type = track.ValueTypeName;
+  //     types[type] = (types[type] || 0) + 1;
+  //   }
 
-    return types;
-  }
+  //   return types;
+  // }
 
   // Helper method to describe object structure
   private static getObjectStructure(

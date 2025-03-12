@@ -11,6 +11,19 @@ export class InputControls {
     movementY: number;
     wheelDelta: number;
   };
+  // Define key mappings for better maintainability
+  keyMap: {[code: string]: string} = {
+    KeyW: "forward",
+    KeyS: "backward",
+    KeyA: "left",
+    KeyD: "right",
+    Space: "jump",
+    KeyC: "crouch",
+    ShiftLeft: "run",
+    ShiftRight: "run",
+    AltLeft: "walk",
+    AltRight: "walk",
+  };
 
   constructor() {
     this.keys = {
@@ -30,23 +43,27 @@ export class InputControls {
       isLocked: false,
       isDragging: false,
       rightButtonDown: false,
-      sensitivity: 0.5, // Increased sensitivity for WoW-like feel
+      sensitivity: 0.6, // Adjusted sensitivity for WoW-like feel
       movementX: 0,
       movementY: 0,
       wheelDelta: 0,
     };
 
     // Keyboard event listeners
-    window.addEventListener("keydown", (e) => this.onKeyDown(e));
-    window.addEventListener("keyup", (e) => this.onKeyUp(e));
+    window.addEventListener("keydown", (e) => this.handleKeyEvent(e, true));
+    window.addEventListener("keyup", (e) => this.handleKeyEvent(e, false));
 
     // Mouse event listeners
-    document.addEventListener("mousedown", (e) => this.onMouseDown(e));
-    document.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    document.addEventListener("mousedown", (e) =>
+      this.handleMouseButtonEvent(e, true)
+    );
+    document.addEventListener("mouseup", (e) =>
+      this.handleMouseButtonEvent(e, false)
+    );
     document.addEventListener("mousemove", (e) => this.onMouseMove(e));
     document.addEventListener("wheel", (e) => this.onMouseWheel(e));
 
-    // Prevent context menu on right-click
+    // Prevent context menu on right-click (essential for WoW-style camera)
     document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // Pointer lock change event
@@ -58,89 +75,30 @@ export class InputControls {
     );
   }
 
-  onKeyDown(event: KeyboardEvent) {
-    switch (event.code) {
-      case "KeyW":
-        this.keys.forward = true;
-        break;
-      case "KeyS":
-        this.keys.backward = true;
-        break;
-      case "KeyA":
-        this.keys.left = true;
-        break;
-      case "KeyD":
-        this.keys.right = true;
-        break;
-      case "Space":
-        this.keys.jump = true;
-        break;
-      case "KeyC":
-        this.keys.crouch = true;
-        break;
-      case "ShiftLeft":
-      case "ShiftRight":
-        this.keys.run = true;
-        break;
-      case "AltLeft":
-      case "AltRight":
-        this.keys.walk = true;
-        break;
+  // Unified key handling method
+  handleKeyEvent(event: KeyboardEvent, isKeyDown: boolean) {
+    const keyAction = this.keyMap[event.code];
+    if (keyAction && this.keys[keyAction] !== undefined) {
+      this.keys[keyAction] = isKeyDown;
     }
   }
 
-  onKeyUp(event: KeyboardEvent) {
-    switch (event.code) {
-      case "KeyW":
-        this.keys.forward = false;
-        break;
-      case "KeyS":
-        this.keys.backward = false;
-        break;
-      case "KeyA":
-        this.keys.left = false;
-        break;
-      case "KeyD":
-        this.keys.right = false;
-        break;
-      case "Space":
-        this.keys.jump = false;
-        break;
-      case "KeyC":
-        this.keys.crouch = false;
-        break;
-      case "ShiftLeft":
-      case "ShiftRight":
-        this.keys.run = false;
-        break;
-      case "AltLeft":
-      case "AltRight":
-        this.keys.walk = false;
-        break;
-    }
-  }
-
-  onMouseDown(event: MouseEvent) {
+  // Unified mouse button handling method
+  handleMouseButtonEvent(event: MouseEvent, isButtonDown: boolean) {
     // Left mouse button (button 0)
     if (event.button === 0) {
-      this.mouse.isDragging = true;
+      this.mouse.isDragging = isButtonDown;
     }
-    // Right mouse button (button 2) - for camera rotation
+    // Right mouse button (button 2) - for camera rotation (WoW style)
     else if (event.button === 2) {
-      this.mouse.rightButtonDown = true;
-      document.body.requestPointerLock();
-    }
-  }
+      this.mouse.rightButtonDown = isButtonDown;
 
-  onMouseUp(event: MouseEvent) {
-    // Left mouse button (button 0)
-    if (event.button === 0) {
-      this.mouse.isDragging = false;
-    }
-    // Right mouse button (button 2)
-    else if (event.button === 2) {
-      this.mouse.rightButtonDown = false;
-      if (document.pointerLockElement) {
+      // Handle pointer lock based on button state
+      if (isButtonDown) {
+        // Request pointer lock when right button is pressed
+        document.body.requestPointerLock();
+      } else if (document.pointerLockElement) {
+        // Exit pointer lock when right button is released
         document.exitPointerLock();
       }
     }
@@ -153,9 +111,16 @@ export class InputControls {
 
     // If pointer is locked and right mouse button is down (WoW style camera)
     if (this.mouse.isLocked && this.mouse.rightButtonDown) {
-      // Get mouse movement (with sensitivity applied)
-      this.mouse.movementX = event.movementX * this.mouse.sensitivity;
-      this.mouse.movementY = event.movementY * this.mouse.sensitivity;
+      // Apply sensitivity to mouse movement for camera rotation
+      // Add dampening to reduce jerkiness on larger movements (like WoW)
+      const dampeningFactor = Math.min(
+        1,
+        10 / (Math.abs(event.movementX) + Math.abs(event.movementY) + 5)
+      );
+      this.mouse.movementX =
+        event.movementX * this.mouse.sensitivity * dampeningFactor;
+      this.mouse.movementY =
+        event.movementY * this.mouse.sensitivity * dampeningFactor;
     } else {
       this.mouse.movementX = 0;
       this.mouse.movementY = 0;
@@ -163,8 +128,8 @@ export class InputControls {
   }
 
   onMouseWheel(event: WheelEvent) {
-    // Normalize wheel delta across browsers
-    const delta = Math.sign(event.deltaY) * 0.5;
+    // Normalize wheel delta across browsers with smoother scaling for WoW-like zooming
+    const delta = Math.sign(event.deltaY) * 0.3;
     this.mouse.wheelDelta = delta;
   }
 

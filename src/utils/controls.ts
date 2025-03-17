@@ -23,6 +23,7 @@ export class InputControls {
     ShiftRight: "run",
     AltLeft: "walk",
     AltRight: "walk",
+    KeyH: "toggleCollision",
   };
 
   constructor() {
@@ -35,6 +36,7 @@ export class InputControls {
       crouch: false,
       run: false,
       walk: false, // For slow movement
+      toggleCollision: false,
     };
 
     this.mouse = {
@@ -43,7 +45,7 @@ export class InputControls {
       isLocked: false,
       isDragging: false,
       rightButtonDown: false,
-      sensitivity: 0.6, // Adjusted sensitivity for WoW-like feel
+      sensitivity: 0.9, // Adjusted sensitivity for WoW-like feel
       movementX: 0,
       movementY: 0,
       wheelDelta: 0,

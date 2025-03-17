@@ -27,12 +27,23 @@ export class HumanCharacter {
   modelScale: number;
   isModelLoaded: boolean = false;
   wasRunningBeforeJump: boolean = false;
+  headBone: THREE.Object3D | null = null; // Head bone reference
+  cameraPosition: THREE.Vector3 = new THREE.Vector3(); // Camera position for head tracking
+  cameraDirection: THREE.Vector3 = new THREE.Vector3(0, 0, -1); // Camera look direction
+  headTrackingEnabled: boolean = true; // Toggle for head tracking
+  headRotationLimit: number = Math.PI / 4; // Limit head rotation (45 degrees)
+  isJumping: boolean = false;
+  startingJump: boolean = false;
+
+  // Collision visualization
+  collisionHelper: THREE.Group | null = null;
+  showCollisionHelpers: boolean = false;
 
   constructor(scene: THREE.Scene, controls: InputControls) {
     this.controls = controls;
     this.velocity = new THREE.Vector3(0, 0, 0);
     this.isOnGround = true;
-    this.rotationSpeed = 10;
+    this.rotationSpeed = 5;
     this.movementDirection = new THREE.Vector3(0, 0, 0);
     this.isMoving = false;
     this.cameraRotation = Math.PI;
@@ -53,6 +64,9 @@ export class HumanCharacter {
     // Create the mesh container for the model
     this.mesh = new THREE.Object3D();
     this.mesh.position.set(0, 0, 0);
+
+    // Create collision visualization helpers
+    this.createCollisionHelpers(scene);
 
     // Add to scene
     scene.add(this.mesh);
@@ -104,13 +118,13 @@ export class HumanCharacter {
     });
 
     // Load the model asynchronously
-    this.loadModel(scene).catch((error) => {
+    this.loadModel().catch((error) => {
       console.error("Failed to load character model:", error);
     });
   }
 
   // Load the 3D model
-  async loadModel(scene: THREE.Scene) {
+  async loadModel() {
     try {
       // Use ModelLoader to load the model by ID
       const result = await ModelLoader.loadModelById(
@@ -136,6 +150,9 @@ export class HumanCharacter {
       // Add the model to the mesh container
       this.mesh.add(this.model);
 
+      // Find the head bone for head tracking
+      this.findHeadBone();
+
       // Create animation mixer
       this.mixer = new THREE.AnimationMixer(this.model);
 
@@ -146,6 +163,35 @@ export class HumanCharacter {
       console.log("Human character model loaded successfully");
     } catch (error) {
       console.error("Error loading model:", error);
+    }
+  }
+
+  /**
+   * Find and store the head bone for head tracking
+   */
+  findHeadBone() {
+    if (!this.model) return;
+
+    // Common head bone names in 3D models
+    const headBoneNames = [
+      "mixamorigHead", // Mixamo naming
+      "Head", // Standard naming
+      "head", // Lowercase
+      "Cabeza", // Spanish
+      "neck1", // Sometimes neck1 is the head
+      "Neck1", // Alternative
+    ];
+
+    // Search through the model to find the head bone
+    this.model.traverse((object) => {
+      if (headBoneNames.includes(object.name) && !this.headBone) {
+        console.log(`Found head bone: ${object.name}`);
+        this.headBone = object;
+      }
+    });
+
+    if (!this.headBone) {
+      console.warn("Could not find head bone for head tracking");
     }
   }
 
@@ -169,17 +215,17 @@ export class HumanCharacter {
       ];
 
       // Register any animations that aren't already registered
-      for (const anim of animationsToLoad) {
-        if (
-          !ModelLoader.getRegisteredModels().some(
-            (model) => model.id === anim.id
-          )
-        ) {
-          console.warn(
-            `Animation ${anim.id} is not registered. Make sure to register it in the constructor.`
-          );
-        }
-      }
+      // for (const anim of animationsToLoad) {
+      //   if (
+      ///     !ModelLoader.getRegisteredModels().some(
+      //       (model) => model.id === anim.id
+      //     )
+      //   ) {
+      //     console.warn(
+      //       `Animation ${anim.id} is not registered. Make sure to register it in the constructor.`
+      //     );
+      //   }
+      // }
 
       // Load all animations
       for (const anim of animationsToLoad) {
@@ -318,7 +364,8 @@ export class HumanCharacter {
       this.controls.keys.forward ||
       this.controls.keys.backward ||
       this.controls.keys.left ||
-      this.controls.keys.right
+      this.controls.keys.right ||
+      this.controls.keys.jump
     );
   }
 
@@ -338,6 +385,10 @@ export class HumanCharacter {
 
   // Update the movement state based on key presses
   updateMovementState() {
+    if (this.isJumping) {
+      return;
+    }
+
     const isAnyMovementKeyPressed = this.isAnyMovementKeyPressed();
 
     // Track if we were running before jumping
@@ -351,12 +402,9 @@ export class HumanCharacter {
       this.wasRunningBeforeJump = false;
     }
 
-    if (!isAnyMovementKeyPressed && this.isOnGround) {
+    if (!isAnyMovementKeyPressed) {
       this.movementState = "idle";
       this.targetSpeed = 0;
-    } else if (this.controls.keys.jump && !this.isOnGround) {
-      // Use the helper method to determine jump animation type
-      this.movementState = this.determineJumpAnimationType();
     } else if (this.controls.keys.run && isAnyMovementKeyPressed) {
       this.movementState = "run";
       this.targetSpeed = this.runSpeed;
@@ -374,77 +422,71 @@ export class HumanCharacter {
 
   // Update the current animation based on movement state
   updateAnimation() {
-    if (!this.mixer || !this.animations) return;
+    if (!this.mixer || Object.keys(this.animations).length === 0) return;
 
-    // Determine which animation to play
+    // Determine which animation to play based on current state
     let targetAnimation: string;
-
-    switch (this.movementState) {
-      case "idle":
-        targetAnimation = "idle";
-        break;
-      case "walk":
-        targetAnimation = "walk";
-        break;
-      case "normal":
-        targetAnimation = "walk";
-        break;
-      case "run":
-        targetAnimation = "run";
-        break;
-      case "jump":
-        targetAnimation = "jump";
-        break;
-      case "jumpRun":
-        targetAnimation = "jumpRun";
-        break;
-      default:
-        targetAnimation = "idle";
+    // console.log("this.movementState", this.movementState);
+    if (this.movementState === "run") {
+      targetAnimation = "run";
+    } else if (this.movementState === "jumpRun") {
+      targetAnimation = "jumpRun";
+    } else if (this.movementState === "jump") {
+      targetAnimation = "jump";
+    } else if (this.movementState === "walk") {
+      targetAnimation = "walk";
+    } else if (this.movementState === "normal") {
+      targetAnimation = "walk";
+    } else {
+      targetAnimation = "idle";
     }
+    // console.log("targetAnimation", targetAnimation);
+    // Get the target animation action
+    const targetAction = this.animations[targetAnimation];
+    if (!targetAction) return;
 
-    // Play the target animation if it's not already playing
-    const currentAction = this.animations[targetAnimation];
-    if (currentAction && !currentAction.isRunning()) {
-      // For jump animations, we want to finish other animations quickly
-      const fadeOutTime =
-        targetAnimation === "jump" || targetAnimation === "jumpRun" ? 0.1 : 0.5;
-
-      // Fade out all current animations
-      Object.values(this.animations).forEach((action) => {
-        if (action.isRunning()) {
-          action.fadeOut(fadeOutTime);
-        }
-      });
-
-      // Fade in the new animation
-      currentAction.reset();
-      currentAction.fadeIn(fadeOutTime);
-      currentAction.play();
-
-      // If it's a jump animation, automatically transition back to appropriate animation when done
-      if (targetAnimation === "jump" || targetAnimation === "jumpRun") {
-        // Store reference to the current action for comparison in the listener
-        const actionToMonitor = currentAction;
-
-        // Use a properly typed event listener function
-        const onAnimationFinished = (e: {
-          action: THREE.AnimationAction;
-          direction: number;
-        }) => {
-          if (e.action === actionToMonitor) {
-            // Once the jump animation finishes, we need to transition to the appropriate animation
-            // Remove this listener to prevent multiple calls
-            this.mixer?.removeEventListener("finished", onAnimationFinished);
-
-            // Determine which animation to go back to based on current keys
-            this.updateMovementState();
-          }
-        };
-
-        this.mixer.addEventListener("finished", onAnimationFinished);
+    // Check which animations are currently active
+    const animationsPlaying: string[] = [];
+    Object.entries(this.animations).forEach(([name, action]) => {
+      if (action.isRunning()) {
+        animationsPlaying.push(name);
       }
+    });
+
+    // console.log("animationsPlaying", animationsPlaying);
+    // If the target animation is already playing, don't do anything
+    if (targetAction.isRunning() && !targetAction.paused) return;
+
+    // Stop all currently running animations with a fade out
+    Object.entries(this.animations).forEach(([name, action]) => {
+      if (action.isRunning() && name !== targetAnimation) {
+        action.fadeOut(0.2);
+      }
+    });
+
+    // Reset the target animation and start it with a fade in
+    targetAction.reset();
+    targetAction.fadeIn(0.2);
+    targetAction.play();
+
+    // Add event listener for jump animation completion
+    if (targetAnimation === "jump") {
+      // Remove any existing listeners to avoid duplicates
+      this.mixer.removeEventListener("finished", () => {});
+
+      // Add listener for animation completion
+      this.mixer.addEventListener("finished", this.onJumpAnimationComplete);
+
+      // // Ensure the animation plays only once and then stops
+      // targetAction.setLoop(THREE.LoopOnce, 1);
+      // targetAction.clampWhenFinished = true;
     }
   }
+
+  // Handler for jump animation completion
+  onJumpAnimationComplete = () => {
+    this.isJumping = false;
+  };
 
   // Handle character movement
   handleMovement(deltaTime: number) {
@@ -531,26 +573,48 @@ export class HumanCharacter {
           -this.movementDirection.z
         );
 
-        // Smoothly rotate to face movement direction (WoW-like)
-        const rotationSpeed = this.rotationSpeed * 0.05;
-        this.mesh.rotation.y = THREE.MathUtils.lerp(
-          this.mesh.rotation.y,
-          targetRotation,
-          rotationSpeed
-        );
+        // Normalize current and target angles to ensure shortest rotation path
+        let currentAngle = this.mesh.rotation.y % (Math.PI * 2);
+        if (currentAngle < 0) currentAngle += Math.PI * 2;
+
+        let targetAngle = targetRotation % (Math.PI * 2);
+        if (targetAngle < 0) targetAngle += Math.PI * 2;
+
+        // Find the shortest rotation direction
+        let angleDiff = targetAngle - currentAngle;
+        if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        // Calculate the new rotation angle
+        const newRotation =
+          currentAngle + angleDiff * this.rotationSpeed * 0.02;
+
+        // Apply the rotation
+        this.mesh.rotation.y = newRotation;
       }
-    } else {
-      // When not moving, face the camera direction
-      // Smooth rotation to camera direction (slower than movement-based rotation)
-      const rotationSpeed = this.rotationSpeed * 0.02;
-      // The character should face the same direction as the camera
-      const targetRotation = this.cameraRotation;
-      this.mesh.rotation.y = THREE.MathUtils.lerp(
-        this.mesh.rotation.y,
-        targetRotation,
-        rotationSpeed
-      );
     }
+    // else {
+    //   // When not moving, face the camera direction
+    //   const targetRotation = this.cameraRotation;
+
+    //   // Normalize current and target angles to ensure shortest rotation path
+    //   let currentAngle = this.mesh.rotation.y % (Math.PI * 2);
+    //   if (currentAngle < 0) currentAngle += Math.PI * 2;
+
+    //   let targetAngle = targetRotation % (Math.PI * 2);
+    //   if (targetAngle < 0) targetAngle += Math.PI * 2;
+
+    //   // Find the shortest rotation direction
+    //   let angleDiff = targetAngle - currentAngle;
+    //   if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    //   if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    //   // Calculate the new rotation angle with a slower rotation speed
+    //   const newRotation = currentAngle + angleDiff * this.rotationSpeed * 0.01;
+
+    //   // Apply the rotation
+    //   this.mesh.rotation.y = newRotation;
+    // }
   }
 
   // Set character rotation based on camera horizontal rotation
@@ -580,6 +644,7 @@ export class HumanCharacter {
       this.velocity.y = 0;
       // Set grounded state
       this.isOnGround = true;
+      this.isJumping = false;
     } else {
       // Character is above the floor
       this.isOnGround = false;
@@ -604,21 +669,21 @@ export class HumanCharacter {
       this.isOnGround = false;
 
       // Set the appropriate jump animation based on current movement
-      // Using the helper method for consistency
       this.movementState = this.determineJumpAnimationType();
 
-      // Update animation immediately
+      if (this.movementState === "jump" || this.movementState === "jumpRun") {
+        this.isJumping = true;
+      }
       this.updateAnimation();
     }
 
-    // Apply vertical velocity
     this.mesh.position.y += this.velocity.y * deltaTime;
   }
 
   // Main update method called every frame
   update(deltaTime: number, floor: THREE.Object3D) {
     // Cap deltaTime to prevent excessive jumps in physics when frame rate drops
-    const cappedDeltaTime = Math.min(deltaTime, 0.1);
+    const cappedDeltaTime = Math.min(deltaTime, 0.3);
 
     // Update animation mixer
     if (this.mixer) {
@@ -627,12 +692,156 @@ export class HumanCharacter {
 
     // First update movement state based on keys
     this.updateMovementState();
-
+    console.log("this.movementState", this.movementState);
+    console.log("this.startingJump", this.startingJump);
     // Handle all physics in sequence, with a single collision check at the end
     this.handleMovement(cappedDeltaTime);
+
     this.handleJump(cappedDeltaTime);
 
     // Perform a single collision check after all movement is applied
     this.checkCollisions(floor);
+
+    // Update head tracking if enabled
+    this.updateHeadTracking();
+
+    // Update collision helpers position
+    this.updateCollisionHelpers();
+  }
+
+  /**
+   * Update head tracking to look in the camera direction
+   */
+  updateHeadTracking() {
+    // Skip if head tracking is disabled or head bone wasn't found
+    if (!this.headTrackingEnabled || !this.headBone) return;
+
+    // Get the world position of the head for context
+    const headWorldPosition = new THREE.Vector3();
+    this.headBone.getWorldPosition(headWorldPosition);
+
+    // Create a target position that extends from the head in the camera's direction
+    // This makes the head look in the same direction as the camera instead of at the camera
+    const targetPosition = new THREE.Vector3()
+      .copy(headWorldPosition)
+      .add(this.cameraDirection.clone().multiplyScalar(10)); // Look 10 units forward in the camera direction
+
+    // Save original rotation
+    const originalRotation = new THREE.Euler().copy(this.headBone.rotation);
+
+    // Make the head look in the camera direction
+    this.headBone.lookAt(targetPosition);
+
+    // Limit the rotation to prevent unnatural head movements
+    // Only limit the Y-axis rotation (left/right)
+    if (
+      Math.abs(this.headBone.rotation.y - originalRotation.y) >
+      this.headRotationLimit
+    ) {
+      // If rotation is too extreme, clamp it
+      const direction = this.headBone.rotation.y > originalRotation.y ? 1 : -1;
+      this.headBone.rotation.y =
+        originalRotation.y + this.headRotationLimit * direction;
+    }
+
+    // Preserve the original X and Z rotations to maintain the animation's natural head posture
+    this.headBone.rotation.x = originalRotation.x;
+    this.headBone.rotation.z = originalRotation.z;
+  }
+
+  /**
+   * Set the current camera position and direction for head tracking
+   * @param position The camera position
+   * @param direction The camera look direction (normalized)
+   */
+  setCameraPositionForHeadTracking(
+    position: THREE.Vector3,
+    direction?: THREE.Vector3
+  ) {
+    this.cameraPosition.copy(position);
+    if (direction) {
+      this.cameraDirection.copy(direction);
+    }
+  }
+
+  /**
+   * Toggle head tracking on/off
+   * @param enabled Whether head tracking should be enabled
+   */
+  setHeadTrackingEnabled(enabled: boolean) {
+    this.headTrackingEnabled = enabled;
+  }
+
+  /**
+   * Create visual helpers for collision detection
+   */
+  createCollisionHelpers(scene: THREE.Scene) {
+    // Create a group to hold all collision helpers
+    this.collisionHelper = new THREE.Group();
+    scene.add(this.collisionHelper);
+
+    // Create a vertical line to show character position
+    const verticalLineMaterial = new THREE.LineBasicMaterial({color: 0xff0000});
+    const verticalLineGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, -1, 0),
+      new THREE.Vector3(0, 3, 0),
+    ]);
+    const verticalLine = new THREE.Line(
+      verticalLineGeometry,
+      verticalLineMaterial
+    );
+    this.collisionHelper.add(verticalLine);
+
+    // Create a circle to show ground collision area
+    const circleGeometry = new THREE.CircleGeometry(0.5, 32);
+    circleGeometry.rotateX(-Math.PI / 2); // Make it horizontal
+    const circleMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ff00,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide,
+    });
+    const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+    circle.position.y = 0.01; // Slightly above ground to avoid z-fighting
+    this.collisionHelper.add(circle);
+
+    // Create a box to show character bounds
+    const boxGeometry = new THREE.BoxGeometry(1, 2, 1);
+    const boxMaterial = new THREE.MeshBasicMaterial({
+      color: 0x0000ff,
+      transparent: true,
+      opacity: 0.2,
+      wireframe: true,
+    });
+    const box = new THREE.Mesh(boxGeometry, boxMaterial);
+    box.position.y = 1; // Center at character height
+    this.collisionHelper.add(box);
+
+    // Hide by default
+    this.collisionHelper.visible = this.showCollisionHelpers;
+  }
+
+  /**
+   * Toggle collision helpers visibility
+   */
+  toggleCollisionHelpers(show?: boolean) {
+    if (show !== undefined) {
+      this.showCollisionHelpers = show;
+    } else {
+      this.showCollisionHelpers = !this.showCollisionHelpers;
+    }
+
+    if (this.collisionHelper) {
+      this.collisionHelper.visible = this.showCollisionHelpers;
+    }
+  }
+
+  /**
+   * Update the position of collision helpers to match character position
+   */
+  updateCollisionHelpers() {
+    if (this.collisionHelper && this.showCollisionHelpers) {
+      this.collisionHelper.position.copy(this.mesh.position);
+    }
   }
 }

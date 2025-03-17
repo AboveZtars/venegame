@@ -2,6 +2,8 @@ import * as THREE from "three";
 import {Floor} from "./components/Floor";
 import {HumanCharacter} from "./components/HumanCharacter";
 import {InputControls} from "./utils/controls";
+import {SkyBox} from "./components/SkyBox";
+import {City} from "./components/City";
 
 class Game {
   scene: THREE.Scene;
@@ -11,6 +13,8 @@ class Game {
   controls: InputControls;
   character: HumanCharacter;
   clock: THREE.Clock;
+  skybox: SkyBox;
+  city: City;
   cameraOffset: THREE.Vector3;
   targetCameraOffset: THREE.Vector3;
   cameraRotation: number = 0;
@@ -25,7 +29,7 @@ class Game {
     // Initialize Three.js
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      50,
       window.innerWidth / window.innerHeight,
       0.1,
       1000
@@ -39,26 +43,32 @@ class Game {
     // Set up lighting
     this.setupLighting();
 
+    // Create skybox
+    this.skybox = new SkyBox(this.scene);
+
     // Initialize controls
     this.controls = new InputControls();
 
     // Create floor
     this.floor = new Floor(this.scene, 100);
 
+    // Create city
+    this.city = new City(this.scene, 90, 0.6);
+
     // Create character
     this.character = new HumanCharacter(this.scene, this.controls);
 
     // Adjust model scale and offset if needed
     this.character.setModelScale(1.5);
-    this.character.setModelOffset(new THREE.Vector3(0, 0, 0));
+    // this.character.setModelOffset(new THREE.Vector3(0, 0, 0));
 
     // Ensure character starts on the ground
-    this.character.mesh.position.set(0, 0, 0);
-    this.character.velocity.set(0, 0, 0);
-    this.character.isOnGround = true;
+    // this.character.mesh.position.set(0, 0, 0);
+    // this.character.velocity.set(0, 0, 0);
+    // this.character.isOnGround = true;
 
     // Set up camera
-    this.cameraOffset = new THREE.Vector3(0, 3, 8); // Increased initial distance
+    this.cameraOffset = new THREE.Vector3(0, 3, 5.5); // Increased initial distance
     this.targetCameraOffset = this.cameraOffset.clone();
 
     // Set initial camera position and look target
@@ -79,22 +89,26 @@ class Game {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(ambientLight);
 
-    // Add directional light
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(5, 10, 7.5);
+    // Add directional light (sun)
+    const dirLight = new THREE.DirectionalLight(0xffffcc, 1);
+    dirLight.position.set(50, 60, 30);
     dirLight.castShadow = true;
 
     // Improve shadow quality
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
-    dirLight.shadow.camera.left = -20;
-    dirLight.shadow.camera.right = 20;
-    dirLight.shadow.camera.top = 20;
-    dirLight.shadow.camera.bottom = -20;
+    dirLight.shadow.camera.far = 150;
+    dirLight.shadow.camera.left = -70;
+    dirLight.shadow.camera.right = 70;
+    dirLight.shadow.camera.top = 70;
+    dirLight.shadow.camera.bottom = -70;
 
     this.scene.add(dirLight);
+
+    // Add hemisphere light for more natural outdoor lighting
+    const hemiLight = new THREE.HemisphereLight(0x0099ff, 0x777733, 0.5);
+    this.scene.add(hemiLight);
   }
 
   onWindowResize() {
@@ -151,6 +165,18 @@ class Game {
     // Update camera look target
     const lookTarget = this.calculateCameraLookTarget(heightOffset);
     this.camera.lookAt(lookTarget);
+
+    // Create a look direction vector (from camera to target)
+    const lookDirection = new THREE.Vector3()
+      .copy(lookTarget)
+      .sub(this.camera.position)
+      .normalize();
+
+    // Pass camera position and look direction to character for head tracking
+    this.character.setCameraPositionForHeadTracking(
+      this.camera.position,
+      lookDirection
+    );
   }
 
   handleCameraMovement() {
@@ -243,6 +269,12 @@ class Game {
     requestAnimationFrame(this.animate.bind(this));
 
     const deltaTime = this.clock.getDelta();
+
+    // Handle collision helper toggle
+    if (this.controls.keys.toggleCollision) {
+      this.character.toggleCollisionHelpers();
+      this.controls.keys.toggleCollision = false; // Reset the key state
+    }
 
     // Update character
     this.character.update(deltaTime, this.floor.mesh);
